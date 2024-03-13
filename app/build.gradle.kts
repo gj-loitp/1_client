@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.looker.android.application)
     alias(libs.plugins.looker.hilt.work)
     alias(libs.plugins.looker.lint)
+    id("kotlin-parcelize")
 }
 
 android {
@@ -18,6 +19,7 @@ android {
             "bn",
             "ca",
             "cs",
+            "da",
             "de",
             "el",
             "eo",
@@ -39,6 +41,7 @@ android {
             "lt",
             "lv",
             "ml",
+            "ms",
             "nb-rNO",
             "nl",
             "nn",
@@ -127,7 +130,7 @@ android {
 dependencies {
 
     modules(
-        Modules.coreModel,
+        Modules.coreDomain,
         Modules.coreCommon,
         Modules.coreNetwork,
         Modules.coreDatastore,
@@ -147,5 +150,5 @@ dependencies {
     implementation(libs.kotlinx.datetime)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.jackson.core)
-    implementation(libs.zoomage)
+    implementation(libs.image.viewer)
 }

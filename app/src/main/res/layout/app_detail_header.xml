@@ -6,6 +6,7 @@
     android:layout_marginHorizontal="12dp"
     android:layout_marginTop="12dp"
     android:layout_marginBottom="8dp"
+    android:backgroundTint="?colorSurfaceContainer"
     android:background="@drawable/background_border">
 
     <com.google.android.material.imageview.ShapeableImageView
@@ -167,5 +168,4 @@
         app:icon="@drawable/favourite_icon"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
-
 </androidx.constraintlayout.widget.ConstraintLayout>

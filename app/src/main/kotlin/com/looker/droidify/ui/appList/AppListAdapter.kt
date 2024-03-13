@@ -1,5 +1,6 @@
 package com.looker.droidify.ui.appList
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.view.Gravity
 import android.view.View
@@ -19,8 +20,8 @@ import com.looker.core.common.extension.getColorFromAttr
 import com.looker.core.common.extension.inflate
 import com.looker.core.common.extension.setTextSizeScaled
 import com.looker.core.common.nullIfEmpty
-import com.looker.core.model.ProductItem
-import com.looker.core.model.Repository
+import com.looker.core.domain.ProductItem
+import com.looker.core.domain.Repository
 import com.looker.droidify.R
 import com.looker.droidify.database.Database
 import com.looker.droidify.utility.extension.ImageUtils.icon
@@ -76,12 +77,14 @@ class AppListAdapter(
     }
 
     var repositories: Map<Long, Repository> = emptyMap()
+        @SuppressLint("NotifyDataSetChanged")
         set(value) {
             field = value
             notifyDataSetChanged()
         }
 
     var emptyText: String = ""
+        @SuppressLint("NotifyDataSetChanged")
         set(value) {
             if (field != value) {
                 field = value
@@ -109,7 +112,7 @@ class AppListAdapter(
     }
 
     private fun getProductItem(position: Int): ProductItem {
-        return Database.ProductAdapter.transformItem(moveTo(position))
+        return Database.ProductAdapter.transformItem(moveTo(position.coerceAtLeast(0)))
     }
 
     override fun onCreateViewHolder(
@@ -153,17 +156,17 @@ class AppListAdapter(
                     when {
                         productItem.canUpdate -> {
                             backgroundTintList =
-                                context.getColorFromAttr(MaterialR.attr.colorSecondaryContainer)
+                                context.getColorFromAttr(MaterialR.attr.colorTertiaryContainer)
                             setTextColor(
-                                context.getColorFromAttr(MaterialR.attr.colorOnSecondaryContainer)
+                                context.getColorFromAttr(MaterialR.attr.colorOnTertiaryContainer)
                             )
                         }
 
                         isInstalled -> {
                             backgroundTintList =
-                                context.getColorFromAttr(MaterialR.attr.colorPrimaryContainer)
+                                context.getColorFromAttr(MaterialR.attr.colorSecondaryContainer)
                             setTextColor(
-                                context.getColorFromAttr(MaterialR.attr.colorOnPrimaryContainer)
+                                context.getColorFromAttr(MaterialR.attr.colorOnSecondaryContainer)
                             )
                         }
 

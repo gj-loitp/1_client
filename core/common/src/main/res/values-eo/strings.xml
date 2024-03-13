@@ -11,7 +11,7 @@
         <item quantity="other">Horoj</item>
     </plurals>
     <string name="could_not_download_FORMAT">Ne eblis elŝuti %s</string>
-    <string name="source_code_no_longer_available">Fontkodo ne plu havebla</string>
+    <string name="source_code_no_longer_available">Fontkodo ne plu disponebla</string>
     <string name="incompatible_signature_DESC">Ĉi tiu versio estas subskribita per malsama atestilo ol tiu instalita sur via aparato. Unue malinstalu tion.</string>
     <string name="save">Konservi</string>
     <string name="sync_repositories_automatically">Sinkronigi deponejojn aŭtomate</string>
@@ -19,7 +19,7 @@
     <string name="home_screen_swiping">Hejmekrana Glitado</string>
     <string name="incompatible_older_DESC">Ĉi tiu versio estas pli malnova ol tiu instalita sur via aparato. Unue malinstalu tion.</string>
     <string name="material_you_desc">Uzi Material You kolorhaŭton</string>
-    <string name="only_on_wifi_with_charging">Nur ĉe Wi-Fi kaj Ŝargado</string>
+    <string name="only_on_wifi_with_charging">Nur ĉe Wi-Fi ⳤ Ŝargado</string>
     <string name="sync_repositories">Sinkronigi deponejojn</string>
     <string name="root_installer">Radika Instalilo</string>
     <string name="action_failed">Ago malsukcesis</string>
@@ -50,13 +50,13 @@
     <string name="auto_update_apps">Provi instali ĝisdatigojn aŭtomate</string>
     <string name="downloading">Elŝutanta</string>
     <string name="explore">Esplori</string>
-    <string name="notify_about_updates_summary">Montri sciigon kiam novaj versioj estas havebla</string>
+    <string name="notify_about_updates_summary">Montri sciigon kiam novaj versioj estas disponebla</string>
     <string name="suggested">Sugestita</string>
     <string name="permissions">Permesoj</string>
-    <string name="sort_filter">Ordigi ϗ Filtri</string>
+    <string name="sort_filter">Ordigi ⳤ Filtri</string>
     <string name="open_DESC_FORMAT">Ĉu malfermi %s\?</string>
     <string name="validation_index_error_DESC">Indekso ne povis esti validigita.</string>
-    <string name="new_updates_available">Novaj versioj de aplikaĵoj haveblaj</string>
+    <string name="new_updates_available">Novaj versioj de aplikaĵoj disponeblaj</string>
     <string name="all_applications_up_to_date">Ĉiuj viaj aplikaĵoj estas ĝisdatigitaj</string>
     <string name="has_non_free_dependencies">Havas neliberajn dependecojn</string>
     <string name="changelog">Ŝanĝprotokolo</string>
@@ -67,7 +67,7 @@
         <item quantity="other">Tagoj</item>
     </plurals>
     <string name="could_not_sync_FORMAT">Ne eblis sinkronigi %s</string>
-    <string name="installing">Instalanta</string>
+    <string name="installing">Instalante</string>
     <string name="incompatible_platforms_DESC_FORMAT">Via %1$s platformo ne estas subtenata. Subtenataj platformoj: %2$s.</string>
     <string name="repository_unreachable">Deponejo neatingebla</string>
     <string name="restart_app">Rekomenci Droid-ify por vidi ŝanĝojn</string>
@@ -76,7 +76,7 @@
     <string name="update">Ĝisdatigi</string>
     <string name="show_more">Montri pli</string>
     <string name="incompatible_features_DESC">Mankas funkcioj.</string>
-    <string name="no_applications_available">Neniuj haveblaj aplikaĵoj</string>
+    <string name="no_applications_available">Neniuj disponeblaj aplikaĵoj</string>
     <string name="force_clean_up">Altrudi purigi</string>
     <string name="theme">Haŭto</string>
     <string name="socks_proxy">SOCKS prokurilo</string>
@@ -139,7 +139,7 @@
     <string name="always">Ĉiam</string>
     <string name="address">Adreso</string>
     <string name="root_permission">Silenta Instalo</string>
-    <string name="no_description_available_DESC">Neniu priskribo havebla</string>
+    <string name="no_description_available_DESC">Neniu priskribo disponebla</string>
     <string name="invalid_fingerprint_format">Nevalida fingrospura formato</string>
     <string name="saving_details">Konservanta detalojn…</string>
     <string name="links">Ligiloj</string>
@@ -221,4 +221,14 @@
     <string name="root_permission_description">Permesi radikan permeson por silenta instalo</string>
     <string name="compiled_for_debugging">Kompilita por sencimigado</string>
     <string name="unknown_FORMAT">Nekonata: %s</string>
+    <string name="import_settings_title">Importi Agordojn</string>
+    <string name="import_export">Importi/Eksporti</string>
+    <string name="import_settings_DESC">Importi agordojn kaj favoratojn el dosiero</string>
+    <string name="export_settings_title">Eksporti Agordojn</string>
+    <string name="export_repos_DESC">Eksporti ĉiujn deponejojn al dosiero</string>
+    <string name="import_repos_title">Importi Deponejojn</string>
+    <string name="export_settings_DESC">Eksporti agordojn kaj favoratojn al dosiero</string>
+    <string name="export_repos_title">Eksporti Deponejojn</string>
+    <string name="import_repos_DESC">Importi ĉiujn deponejojn el dosiero</string>
+    <string name="cannot_open_link">Ne povas malfermi ligilon</string>
 </resources>

@@ -5,6 +5,8 @@ import com.looker.core.common.extension.exceptCancellation
 import com.looker.core.common.extension.size
 import com.looker.core.common.signature.FileValidator
 import com.looker.core.common.signature.ValidationException
+import com.looker.network.Downloader.Companion.CONNECTION_TIMEOUT
+import com.looker.network.Downloader.Companion.SOCKET_TIMEOUT
 import com.looker.network.header.HeadersBuilder
 import com.looker.network.header.KtorHeadersBuilder
 import io.ktor.client.HttpClient
@@ -23,6 +25,7 @@ import io.ktor.client.request.url
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.URLParserException
 import io.ktor.http.etag
 import io.ktor.http.isSuccess
 import io.ktor.http.lastModified
@@ -30,12 +33,12 @@ import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.core.ByteReadPacket
 import io.ktor.utils.io.core.isEmpty
 import io.ktor.utils.io.core.readBytes
-import java.io.File
-import java.io.IOException
-import java.net.Proxy
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.IOException
+import java.net.Proxy
 
 internal class KtorDownloader : Downloader {
 
@@ -103,8 +106,8 @@ internal class KtorDownloader : Downloader {
     companion object {
 
         private fun HttpClientConfig<OkHttpConfig>.timeoutConfig() = install(HttpTimeout) {
-            connectTimeoutMillis = 30_000
-            socketTimeoutMillis = 15_000
+            connectTimeoutMillis = CONNECTION_TIMEOUT
+            socketTimeoutMillis = SOCKET_TIMEOUT
         }
 
         private fun createRequest(

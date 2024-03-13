@@ -4,6 +4,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.util.Log
@@ -26,9 +27,10 @@ import com.looker.core.common.log
 import com.looker.core.common.sdkAbove
 import com.looker.core.common.signature.ValidationException
 import com.looker.core.datastore.SettingsRepository
+import com.looker.core.datastore.get
 import com.looker.core.datastore.model.InstallerType
-import com.looker.core.model.Release
-import com.looker.core.model.Repository
+import com.looker.core.domain.Release
+import com.looker.core.domain.Repository
 import com.looker.droidify.BuildConfig
 import com.looker.droidify.MainActivity
 import com.looker.installer.InstallManager
@@ -40,12 +42,12 @@ import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.sample
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -141,7 +143,7 @@ class DownloadService : ConnectionService<DownloadService.Binder>() {
                 isUpdate = isUpdate
             )
             if (Cache.getReleaseFile(this@DownloadService, release.cacheFileName).exists()) {
-                runBlocking { publishSuccess(task) }
+                lifecycleScope.launch { publishSuccess(task) }
                 return
             }
             cancelTasks(packageName)
@@ -184,8 +186,8 @@ class DownloadService : ConnectionService<DownloadService.Binder>() {
         lifecycleScope.launch {
             _downloadState
                 .filter { currentTask != null }
-                .collect {
-                    delay(400)
+                .sample(400)
+                .collectLatest {
                     publishForegroundState(false, it.currentItem)
                 }
         }
@@ -244,10 +246,7 @@ class DownloadService : ConnectionService<DownloadService.Binder>() {
                 .Builder(this, Constants.NOTIFICATION_CHANNEL_DOWNLOADING)
                 .setAutoCancel(true)
                 .setSmallIcon(android.R.drawable.stat_notify_error)
-                .setColor(
-                    ContextThemeWrapper(this, styleRes.Theme_Main_Light)
-                        .getColor(CommonR.color.md_theme_dark_errorContainer)
-                )
+                .setColor(Color.GREEN)
                 .setOnlyAlertOnce(true)
                 .setContentIntent(intent)
                 .errorNotificationContent(task, errorType)
@@ -290,10 +289,7 @@ class DownloadService : ConnectionService<DownloadService.Binder>() {
                 .setAutoCancel(true)
                 .setOngoing(false)
                 .setSmallIcon(android.R.drawable.stat_sys_download_done)
-                .setColor(
-                    ContextThemeWrapper(this, styleRes.Theme_Main_Light)
-                        .getColor(CommonR.color.md_theme_dark_primaryContainer)
-                )
+                .setColor(Color.GREEN)
                 .setOnlyAlertOnce(true)
                 .setContentIntent(intent)
                 .setContentTitle(getString(stringRes.downloaded_FORMAT, task.name))
@@ -325,10 +321,7 @@ class DownloadService : ConnectionService<DownloadService.Binder>() {
         NotificationCompat
             .Builder(this, Constants.NOTIFICATION_CHANNEL_DOWNLOADING)
             .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setColor(
-                ContextThemeWrapper(this, styleRes.Theme_Main_Light)
-                    .getColor(CommonR.color.md_theme_dark_primaryContainer)
-            )
+            .setColor(Color.GREEN)
             .addAction(
                 0,
                 getString(stringRes.cancel),
@@ -428,7 +421,6 @@ class DownloadService : ConnectionService<DownloadService.Binder>() {
                 validator = releaseValidator,
                 headers = { authentication(task.authentication) }
             ) { read, total ->
-                ensureActive()
                 yield()
                 updateCurrentState(State.Downloading(task.packageName, read, total))
             }

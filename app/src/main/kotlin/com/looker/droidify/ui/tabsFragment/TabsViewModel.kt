@@ -5,8 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.looker.core.common.extension.asStateFlow
 import com.looker.core.datastore.SettingsRepository
+import com.looker.core.datastore.get
 import com.looker.core.datastore.model.SortOrder
-import com.looker.core.model.ProductItem
+import com.looker.core.domain.ProductItem
 import com.looker.droidify.database.Database
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject

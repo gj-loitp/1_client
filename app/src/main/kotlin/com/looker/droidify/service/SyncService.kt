@@ -14,62 +14,80 @@ import android.graphics.Color
 import android.os.Build
 import android.text.SpannableStringBuilder
 import android.text.style.ForegroundColorSpan
-import android.util.Log
 import android.view.ContextThemeWrapper
 import androidx.core.app.NotificationCompat
 import androidx.fragment.app.Fragment
-import com.looker.core.common.*
-import com.looker.core.common.R as CommonR
-import com.looker.core.common.R.string as stringRes
-import com.looker.core.common.R.style as styleRes
-import com.looker.core.common.extension.*
+import com.looker.core.common.Constants
+import com.looker.core.common.DataSize
+import com.looker.core.common.SdkCheck
+import com.looker.core.common.extension.getColorFromAttr
+import com.looker.core.common.extension.notificationManager
+import com.looker.core.common.extension.percentBy
+import com.looker.core.common.extension.startSelf
+import com.looker.core.common.extension.stopForegroundCompat
 import com.looker.core.common.result.Result
+import com.looker.core.common.sdkAbove
 import com.looker.core.datastore.SettingsRepository
-import com.looker.core.model.ProductItem
-import com.looker.core.model.Repository
+import com.looker.core.domain.ProductItem
+import com.looker.core.domain.Repository
 import com.looker.droidify.BuildConfig
 import com.looker.droidify.MainActivity
 import com.looker.droidify.database.Database
 import com.looker.droidify.index.RepositoryUpdater
 import com.looker.droidify.utility.extension.startUpdate
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.sample
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.lang.ref.WeakReference
 import javax.inject.Inject
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import com.looker.core.common.R as CommonR
+import com.looker.core.common.R.string as stringRes
+import com.looker.core.common.R.style as styleRes
+import kotlinx.coroutines.Job as CoroutinesJob
 
 @AndroidEntryPoint
 class SyncService : ConnectionService<SyncService.Binder>() {
 
     companion object {
-        private const val TAG = "SyncService"
+        private const val MAX_PROGRESS = 100
+
+        private const val NOTIFICATION_UPDATE_SAMPLING = 400L
 
         private const val MAX_UPDATE_NOTIFICATION = 5
         private const val ACTION_CANCEL = "${BuildConfig.APPLICATION_ID}.intent.action.CANCEL"
 
-        private val mutableStateSubject = MutableSharedFlow<State>()
-        private val mutableFinishState = MutableSharedFlow<Unit>()
+        private val syncState = MutableSharedFlow<State>()
+        private val onFinishState = MutableSharedFlow<Unit>()
     }
 
     @Inject
     lateinit var settingsRepository: SettingsRepository
 
-    private sealed interface State {
-        data class Connecting(val name: String) : State
+    private sealed class State(val name: String) {
+        data class Connecting(val appName: String) : State(appName)
         data class Syncing(
-            val name: String,
+            val appName: String,
             val stage: RepositoryUpdater.Stage,
             val read: DataSize,
             val total: DataSize?
-        ) : State
-
-        data object Finishing : State
+        ) : State(appName)
     }
 
     private class Task(val repositoryId: Long, val manual: Boolean)
     private data class CurrentTask(
         val task: Task?,
-        val job: kotlinx.coroutines.Job,
+        val job: CoroutinesJob,
         val hasUpdates: Boolean,
         val lastState: State
     )
@@ -83,15 +101,16 @@ class SyncService : ConnectionService<SyncService.Binder>() {
     private var updateNotificationBlockerFragment: WeakReference<Fragment>? = null
 
     private val downloadConnection = Connection(DownloadService::class.java)
+    private val lock = Mutex()
 
     enum class SyncRequest { AUTO, MANUAL, FORCE }
 
     inner class Binder : android.os.Binder() {
-        val finish: SharedFlow<Unit>
-            get() = mutableFinishState.asSharedFlow()
+
+        val onFinish: SharedFlow<Unit>
+            get() = onFinishState.asSharedFlow()
 
         private fun sync(ids: List<Long>, request: SyncRequest) {
-            Log.i(TAG, "Sync Started: ${request.name}")
             val cancelledTask =
                 cancelCurrentTask { request == SyncRequest.FORCE && it.task?.repositoryId in ids }
             cancelTasks { !it.manual && it.repositoryId in ids }
@@ -195,9 +214,13 @@ class SyncService : ConnectionService<SyncService.Binder>() {
             notificationManager?.createNotificationChannels(channels)
         }
         downloadConnection.bind(this)
-        mutableStateSubject.onEach {
-            publishForegroundState(false, it)
-        }.launchIn(lifecycleScope)
+        lifecycleScope.launch {
+            syncState
+                .sample(NOTIFICATION_UPDATE_SAMPLING)
+                .collectLatest {
+                    publishForegroundState(false, it)
+                }
+        }
     }
 
     override fun onDestroy() {
@@ -289,21 +312,20 @@ class SyncService : ConnectionService<SyncService.Binder>() {
                 startForeground(
                     Constants.NOTIFICATION_ID_SYNCING,
                     stateNotificationBuilder.apply {
+                        setContentTitle(getString(stringRes.syncing_FORMAT, state.name))
                         when (state) {
                             is State.Connecting -> {
-                                setContentTitle(getString(stringRes.syncing_FORMAT, state.name))
                                 setContentText(getString(stringRes.connecting))
                                 setProgress(0, 0, true)
                             }
 
                             is State.Syncing -> {
-                                setContentTitle(getString(stringRes.syncing_FORMAT, state.name))
                                 when (state.stage) {
                                     RepositoryUpdater.Stage.DOWNLOAD -> {
                                         if (state.total != null) {
                                             setContentText("${state.read} / ${state.total}")
                                             setProgress(
-                                                100,
+                                                MAX_PROGRESS,
                                                 state.read percentBy state.total,
                                                 false
                                             )
@@ -315,16 +337,14 @@ class SyncService : ConnectionService<SyncService.Binder>() {
 
                                     RepositoryUpdater.Stage.PROCESS -> {
                                         val progress = (state.read percentBy state.total)
-                                            .takeIf {
-                                                it != -1
-                                            }
+                                            .takeIf { it != -1 }
                                         setContentText(
                                             getString(
                                                 stringRes.processing_FORMAT,
                                                 "${progress ?: 0}%"
                                             )
                                         )
-                                        setProgress(100, progress ?: 0, progress == null)
+                                        setProgress(MAX_PROGRESS, progress ?: 0, progress == null)
                                     }
 
                                     RepositoryUpdater.Stage.MERGE -> {
@@ -332,10 +352,10 @@ class SyncService : ConnectionService<SyncService.Binder>() {
                                         setContentText(
                                             getString(
                                                 stringRes.merging_FORMAT,
-                                                "${state.read} / ${state.total ?: state.read}"
+                                                "${state.read.value} / ${state.total?.value ?: state.read.value}"
                                             )
                                         )
-                                        setProgress(100, progress, false)
+                                        setProgress(MAX_PROGRESS, progress, false)
                                     }
 
                                     RepositoryUpdater.Stage.COMMIT -> {
@@ -343,12 +363,6 @@ class SyncService : ConnectionService<SyncService.Binder>() {
                                         setProgress(0, 0, true)
                                     }
                                 }
-                            }
-
-                            is State.Finishing -> {
-                                setContentTitle(getString(stringRes.syncing))
-                                setContentText(null)
-                                setProgress(0, 0, true)
                             }
                         }::class
                     }.build()
@@ -362,48 +376,88 @@ class SyncService : ConnectionService<SyncService.Binder>() {
     }
 
     private fun handleNextTask(hasUpdates: Boolean) {
-        if (currentTask == null) {
-            if (tasks.isNotEmpty()) {
-                val task = tasks.removeAt(0)
-                val repository = Database.RepositoryAdapter.get(task.repositoryId)
-                if (repository != null && repository.enabled) {
-                    val lastStarted = started
-                    val newStarted =
-                        if (task.manual || lastStarted == Started.MANUAL) {
-                            Started.MANUAL
-                        } else {
-                            Started.AUTO
-                        }
-                    started = newStarted
-                    if (newStarted == Started.MANUAL && lastStarted != Started.MANUAL) {
-                        startSelf()
-                        handleSetStarted()
-                    }
-                    val initialState = State.Connecting(repository.name)
-                    publishForegroundState(true, initialState)
-                    lifecycleScope.launch {
-                        val unstableUpdates =
-                            settingsRepository.fetchInitialPreferences().unstableUpdate
-                        handleFileDownload(
-                            task = task,
-                            initialState = initialState,
-                            hasUpdates = hasUpdates,
-                            unstableUpdates = unstableUpdates,
-                            repository = repository
-                        )
-                    }
-                } else {
-                    handleNextTask(hasUpdates)
-                }
-            } else if (started != Started.NO) {
+        if (currentTask != null) return
+        if (tasks.isEmpty()) {
+            if (started != Started.NO) {
                 lifecycleScope.launch {
-                    val setting = settingsRepository.fetchInitialPreferences()
+                    val setting = settingsRepository.getInitial()
                     handleUpdates(
                         hasUpdates = hasUpdates,
                         notifyUpdates = setting.notifyUpdate,
                         autoUpdate = setting.autoUpdate
                     )
                 }
+            }
+            return
+        }
+        val task = tasks.removeFirst()
+        val repository = Database.RepositoryAdapter.get(task.repositoryId)
+        if (repository == null || !repository.enabled) handleNextTask(hasUpdates)
+        val lastStarted = started
+        val newStarted = if (task.manual || lastStarted == Started.MANUAL) {
+            Started.MANUAL
+        } else {
+            Started.AUTO
+        }
+        started = newStarted
+        if (newStarted == Started.MANUAL && lastStarted != Started.MANUAL) {
+            startSelf()
+            handleSetStarted()
+        }
+        val initialState = State.Connecting(repository!!.name)
+        publishForegroundState(true, initialState)
+        lifecycleScope.launch {
+            val unstableUpdates =
+                settingsRepository.getInitial().unstableUpdate
+            val downloadJob = downloadFile(
+                task = task,
+                repository = repository,
+                hasUpdates = hasUpdates,
+                unstableUpdates = unstableUpdates
+            )
+            currentTask = CurrentTask(task, downloadJob, hasUpdates, initialState)
+        }
+    }
+
+    private fun CoroutineScope.downloadFile(
+        task: Task,
+        repository: Repository,
+        hasUpdates: Boolean,
+        unstableUpdates: Boolean
+    ): CoroutinesJob = launch(Dispatchers.Default) {
+        var passedHasUpdates = hasUpdates
+        try {
+            val response = RepositoryUpdater.update(
+                this@SyncService,
+                repository,
+                unstableUpdates
+            ) { stage, progress, total ->
+                launch {
+                    syncState.emit(
+                        State.Syncing(
+                            appName = repository.name,
+                            stage = stage,
+                            read = DataSize(progress),
+                            total = total?.let { DataSize(it) }
+                        )
+                    )
+                }
+            }
+            passedHasUpdates = when (response) {
+                is Result.Error -> {
+                    response.exception?.let {
+                        it.printStackTrace()
+                        if (task.manual) showNotificationError(repository, it as Exception)
+                    }
+                    response.data == true || hasUpdates
+                }
+
+                is Result.Success -> response.data || hasUpdates
+            }
+        } finally {
+            withContext(NonCancellable) {
+                lock.withLock { currentTask = null }
+                handleNextTask(passedHasUpdates)
             }
         }
     }
@@ -413,69 +467,32 @@ class SyncService : ConnectionService<SyncService.Binder>() {
         notifyUpdates: Boolean,
         autoUpdate: Boolean
     ) {
-        if (hasUpdates && notifyUpdates) {
-            val job = lifecycleScope.launch {
-                currentTask = null
+        try {
+            if (!hasUpdates || !notifyUpdates) {
+                onFinishState.emit(Unit)
+                val needStop = started == Started.MANUAL
+                started = Started.NO
+                if (needStop) stopForegroundCompat()
+                return
+            }
+            val blocked = updateNotificationBlockerFragment?.get()?.isAdded == true
+            val updates = Database.ProductAdapter.getUpdates()
+            if (!blocked && updates.isNotEmpty()) {
+                displayUpdatesNotification(updates)
+                if (autoUpdate) updateAllAppsInternal()
+            }
+            handleUpdates(hasUpdates = false, notifyUpdates = true, autoUpdate = autoUpdate)
+        } finally {
+            withContext(NonCancellable) {
+                lock.withLock { currentTask = null }
                 handleNextTask(false)
-                val blocked = updateNotificationBlockerFragment?.get()?.isAdded == true
-                val updates = Database.ProductAdapter.getUpdatesStream().first()
-                if (!blocked && updates.isNotEmpty()) {
-                    displayUpdatesNotification(updates)
-                    if (autoUpdate) updateAllAppsInternal()
-                }
-            }
-            currentTask = CurrentTask(null, job, true, State.Finishing)
-        } else {
-            lifecycleScope.launch { mutableFinishState.emit(Unit) }
-            val needStop = started == Started.MANUAL
-            started = Started.NO
-            if (needStop) stopForegroundCompat()
-        }
-    }
-
-    private suspend fun handleFileDownload(
-        task: Task,
-        initialState: State,
-        hasUpdates: Boolean,
-        unstableUpdates: Boolean,
-        repository: Repository
-    ) {
-        val job = lifecycleScope.launch {
-            val request = RepositoryUpdater.update(
-                this@SyncService,
-                repository,
-                unstableUpdates
-            ) { stage, progress, total ->
-                launch {
-                    mutableStateSubject.emit(
-                        State.Syncing(
-                            repository.name,
-                            stage,
-                            DataSize(progress),
-                            total?.let { DataSize(it) }
-                        )
-                    )
-                }
-            }
-            currentTask = null
-            when (request) {
-                is Result.Error -> {
-                    request.exception?.let {
-                        it.printStackTrace()
-                        if (task.manual) showNotificationError(repository, it as Exception)
-                    }
-                    handleNextTask(request.data == true || hasUpdates)
-                }
-
-                is Result.Success -> handleNextTask(request.data || hasUpdates)
             }
         }
-        currentTask = CurrentTask(task, job, hasUpdates, initialState)
     }
 
     private suspend fun updateAllAppsInternal() {
         Database.ProductAdapter
-            .getUpdatesStream().first()
+            .getUpdates()
             // Update Droid-ify the last
             .sortedBy { if (it.packageName == packageName) 1 else -1 }
             .map {
@@ -557,7 +574,7 @@ class SyncService : ConnectionService<SyncService.Binder>() {
         private val syncConnection =
             Connection(SyncService::class.java, onBind = { connection, binder ->
                 jobScope.launch {
-                    binder.finish.collect {
+                    binder.onFinish.collect {
                         val params = syncParams
                         if (params != null) {
                             syncParams = null
@@ -568,14 +585,14 @@ class SyncService : ConnectionService<SyncService.Binder>() {
                 }
                 binder.sync(SyncRequest.AUTO)
             }, onUnbind = { _, binder ->
-                    binder.cancelAuto()
-                    jobScope.cancel()
-                    val params = syncParams
-                    if (params != null) {
-                        syncParams = null
-                        jobFinished(params, true)
-                    }
-                })
+                binder.cancelAuto()
+                jobScope.cancel()
+                val params = syncParams
+                if (params != null) {
+                    syncParams = null
+                    jobFinished(params, true)
+                }
+            })
 
         override fun onStartJob(params: JobParameters): Boolean {
             syncParams = params

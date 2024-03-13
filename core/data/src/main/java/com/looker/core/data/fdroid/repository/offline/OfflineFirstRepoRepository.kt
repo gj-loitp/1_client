@@ -11,7 +11,7 @@ import com.looker.core.database.model.update
 import com.looker.core.datastore.SettingsRepository
 import com.looker.core.di.ApplicationScope
 import com.looker.core.di.DefaultDispatcher
-import com.looker.core.model.newer.Repo
+import com.looker.core.domain.newer.Repo
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -34,7 +34,7 @@ class OfflineFirstRepoRepository @Inject constructor(
 ) : RepoRepository {
 
     private val preference = runBlocking {
-        settingsRepository.fetchInitialPreferences()
+        settingsRepository.getInitial()
     }
 
     private val locale = preference.language
@@ -94,6 +94,7 @@ class OfflineFirstRepoRepository @Inject constructor(
             e.exceptCancellation()
             return@supervisorScope false
         }
+        if (indices.isEmpty()) return@supervisorScope true
         indices.forEach { (repo, index) ->
             val updatedRepo = index!!.repo.toEntity(
                 id = repo.id,

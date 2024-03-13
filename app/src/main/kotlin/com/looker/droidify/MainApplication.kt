@@ -2,7 +2,10 @@ package com.looker.droidify
 
 import android.annotation.SuppressLint
 import android.app.Application
-import android.content.*
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.hilt.work.HiltWorkerFactory
 import androidx.work.Configuration
@@ -12,12 +15,16 @@ import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.looker.core.common.Constants
-import com.looker.core.common.R as CommonR
 import com.looker.core.common.cache.Cache
 import com.looker.core.common.extension.getInstalledPackagesCompat
 import com.looker.core.common.extension.jobScheduler
-import com.looker.core.datastore.*
-import com.looker.core.datastore.model.*
+import com.looker.core.common.log
+import com.looker.core.datastore.SettingsRepository
+import com.looker.core.datastore.get
+import com.looker.core.datastore.model.AutoSync
+import com.looker.core.datastore.model.InstallerType
+import com.looker.core.datastore.model.ProxyPreference
+import com.looker.core.datastore.model.ProxyType
 import com.looker.droidify.content.ProductPreferences
 import com.looker.droidify.database.Database
 import com.looker.droidify.index.RepositoryUpdater
@@ -33,13 +40,19 @@ import com.looker.installer.installers.root.RootPermissionHandler
 import com.looker.installer.installers.shizuku.ShizukuPermissionHandler
 import com.looker.network.Downloader
 import dagger.hilt.android.HiltAndroidApp
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.collectIndexed
+import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.launch
 import java.net.InetSocketAddress
 import java.net.Proxy
 import javax.inject.Inject
 import kotlin.time.Duration.Companion.INFINITE
 import kotlin.time.Duration.Companion.hours
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import com.looker.core.common.R as CommonR
 
 @HiltAndroidApp
 class MainApplication : Application(), ImageLoaderFactory, Configuration.Provider {
@@ -134,7 +147,7 @@ class MainApplication : Application(), ImageLoaderFactory, Configuration.Provide
 
     private fun checkLanguage() {
         appScope.launch {
-            val lastSetLanguage = settingsRepository.fetchInitialPreferences().language
+            val lastSetLanguage = settingsRepository.getInitial().language
             val systemSetLanguage = AppCompatDelegate.getApplicationLocales().toLanguageTags()
             if (systemSetLanguage != lastSetLanguage && lastSetLanguage != "system") {
                 settingsRepository.setLanguage(systemSetLanguage)
@@ -156,7 +169,7 @@ class MainApplication : Application(), ImageLoaderFactory, Configuration.Provide
                 }
             }
             launch {
-                settingsRepository.get { cleanUpInterval }.collect {
+                settingsRepository.get { cleanUpInterval }.drop(1).collect {
                     if (it == INFINITE) {
                         CleanUpWorker.removeAllSchedules(applicationContext)
                     } else {
@@ -179,8 +192,8 @@ class MainApplication : Application(), ImageLoaderFactory, Configuration.Provide
             ProxyType.HTTP, ProxyType.SOCKS -> {
                 try {
                     InetSocketAddress.createUnresolved(host, port)
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                } catch (e: IllegalArgumentException) {
+                    log(e)
                     null
                 }
             }
@@ -195,30 +208,29 @@ class MainApplication : Application(), ImageLoaderFactory, Configuration.Provide
     }
 
     private fun updateSyncJob(force: Boolean, autoSync: AutoSync) {
+        if (autoSync == AutoSync.NEVER) {
+            jobScheduler?.cancel(Constants.JOB_ID_SYNC)
+            return
+        }
         val jobScheduler = jobScheduler
         val syncConditions = when (autoSync) {
             AutoSync.ALWAYS -> SyncPreference(NetworkType.CONNECTED)
             AutoSync.WIFI_ONLY -> SyncPreference(NetworkType.UNMETERED)
             AutoSync.WIFI_PLUGGED_IN -> SyncPreference(NetworkType.UNMETERED, pluggedIn = true)
-            AutoSync.NEVER -> SyncPreference(NetworkType.NOT_REQUIRED, canSync = false)
+            else -> null
         }
-        val reschedule =
-            force || (jobScheduler?.allPendingJobs?.any { it.id == Constants.JOB_ID_SYNC } == false)
-        if (reschedule) {
-            when (autoSync) {
-                AutoSync.NEVER -> jobScheduler?.cancel(Constants.JOB_ID_SYNC)
-                else -> {
-                    val period = 12.hours.inWholeMilliseconds
-                    val job = SyncService.Job.create(
-                        context = this,
-                        periodMillis = period,
-                        networkType = syncConditions.toJobNetworkType(),
-                        isCharging = syncConditions.pluggedIn,
-                        isBatteryLow = syncConditions.batteryNotLow
-                    )
-                    jobScheduler?.schedule(job)
-                }
-            }
+        val isPreviousJobPending = jobScheduler?.allPendingJobs
+            ?.any { it.id == Constants.JOB_ID_SYNC } == false
+        if ((force || !isPreviousJobPending) && syncConditions != null) {
+            val period = 12.hours.inWholeMilliseconds
+            val job = SyncService.Job.create(
+                context = this,
+                periodMillis = period,
+                networkType = syncConditions.toJobNetworkType(),
+                isCharging = syncConditions.pluggedIn,
+                isBatteryLow = syncConditions.batteryNotLow
+            )
+            jobScheduler?.schedule(job)
         }
     }
 
@@ -257,8 +269,8 @@ class MainApplication : Application(), ImageLoaderFactory, Configuration.Provide
             .build()
     }
 
-    override fun getWorkManagerConfiguration(): Configuration =
-        Configuration.Builder()
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
             .setWorkerFactory(workerFactory)
             .build()
 }
